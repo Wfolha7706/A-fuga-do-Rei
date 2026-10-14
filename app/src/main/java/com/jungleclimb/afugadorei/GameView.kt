@@ -16,6 +16,7 @@ class GameView(context: Context) : SurfaceView(context), SurfaceHolder.Callback,
 
     private var renderThread: Thread? = null
     @Volatile private var running = false
+    @Volatile private var surfaceReady = false
 
     private val saveManager = SaveManager(context)
     private val soundEngine = SoundEngine(context, saveManager)
@@ -120,9 +121,17 @@ class GameView(context: Context) : SurfaceView(context), SurfaceHolder.Callback,
     }
 
     fun resumeGame() {
+        if (!surfaceReady) return
+        startThread()
+    }
+
+    private fun startThread() {
         if (running) return
         running = true
-        renderThread = Thread(this).apply { start() }
+        renderThread = Thread(this).apply {
+            isDaemon = true
+            start()
+        }
         if (screenState == ScreenState.PLAYING) {
             soundEngine.startMusic(level.worldNumber)
         } else if (screenState == ScreenState.MAIN_MENU) {
@@ -131,15 +140,13 @@ class GameView(context: Context) : SurfaceView(context), SurfaceHolder.Callback,
     }
 
     fun pauseGame() {
-        if (screenState == ScreenState.PLAYING) {
-            screenState = ScreenState.PAUSED
-        }
+        running = false
         clearTouchStates()
         soundEngine.stopMusic()
-        running = false
         try {
-            renderThread?.join(400)
+            renderThread?.join(300)
         } catch (_: Exception) {}
+        renderThread = null
     }
 
     fun handleBackPressed(): Boolean {
@@ -160,27 +167,33 @@ class GameView(context: Context) : SurfaceView(context), SurfaceHolder.Callback,
     }
 
     override fun surfaceCreated(holder: SurfaceHolder) {
-        resumeGame()
+        surfaceReady = true
+        startThread()
     }
 
     override fun surfaceChanged(holder: SurfaceHolder, format: Int, width: Int, height: Int) {
-        scaleX = width.toFloat() / VIRTUAL_W
-        scaleY = height.toFloat() / VIRTUAL_H
+        if (width > 0 && height > 0) {
+            scaleX = width.toFloat() / VIRTUAL_W
+            scaleY = height.toFloat() / VIRTUAL_H
+        }
     }
 
     override fun surfaceDestroyed(holder: SurfaceHolder) {
+        surfaceReady = false
         pauseGame()
     }
 
     override fun run() {
         var lastTime = System.nanoTime()
-        while (running) {
+        while (running && surfaceReady) {
             val now = System.nanoTime()
             val dt = ((now - lastTime) / 1_000_000_000.0f).coerceIn(0.001f, 0.05f)
             lastTime = now
 
-            update(dt)
-            drawFrame()
+            try {
+                update(dt)
+                drawFrame()
+            } catch (_: Exception) {}
 
             val frameTimeMs = (System.nanoTime() - now) / 1_000_000
             if (frameTimeMs < 16) {
@@ -594,11 +607,13 @@ class GameView(context: Context) : SurfaceView(context), SurfaceHolder.Callback,
     }
 
     // =========================================================================
-    // RENDERIZAÇÃO 2D NATIVA (60 FPS)
+    // RENDERIZAÇÃO 2D NATIVA (60 FPS) COM TRAVAMENTO SEGURO
     // =========================================================================
     private fun drawFrame() {
-        val canvas = holder.lockCanvas() ?: return
+        if (!surfaceReady || !holder.surface.isValid) return
+        var canvas: Canvas? = null
         try {
+            canvas = holder.lockCanvas() ?: return
             canvas.save()
             canvas.scale(scaleX, scaleY)
 
@@ -632,8 +647,13 @@ class GameView(context: Context) : SurfaceView(context), SurfaceHolder.Callback,
             }
 
             canvas.restore()
+        } catch (_: Exception) {
         } finally {
-            holder.unlockCanvasAndPost(canvas)
+            if (canvas != null) {
+                try {
+                    holder.unlockCanvasAndPost(canvas)
+                } catch (_: Exception) {}
+            }
         }
     }
 

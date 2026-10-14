@@ -19,12 +19,18 @@ class SoundEngine(private val context: Context, private val saveManager: SaveMan
     @Volatile private var currentWorldTheme = 0 // 0 = Menu, 1..4 = Mundos
     private var musicThread: Thread? = null
 
-    private val vibrator: Vibrator? = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-        val vm = context.getSystemService(Context.VIBRATOR_MANAGER_SERVICE) as? VibratorManager
-        vm?.defaultVibrator
-    } else {
-        @Suppress("DEPRECATION")
-        context.getSystemService(Context.VIBRATOR_SERVICE) as? Vibrator
+    private val vibrator: Vibrator? by lazy {
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                val vm = context.getSystemService(Context.VIBRATOR_MANAGER_SERVICE) as? VibratorManager
+                vm?.defaultVibrator
+            } else {
+                @Suppress("DEPRECATION")
+                context.getSystemService(Context.VIBRATOR_SERVICE) as? Vibrator
+            }
+        } catch (_: Exception) {
+            null
+        }
     }
 
     fun vibrate(durationMs: Long) {
@@ -49,59 +55,66 @@ class SoundEngine(private val context: Context, private val saveManager: SaveMan
         musicRunning = true
 
         musicThread = Thread {
-            val sampleRate = 22050
-            val bufferSize = AudioTrack.getMinBufferSize(
-                sampleRate,
-                AudioFormat.CHANNEL_OUT_MONO,
-                AudioFormat.ENCODING_PCM_16BIT
-            ).coerceAtLeast(2048)
-
-            val track = AudioTrack.Builder()
-                .setAudioAttributes(
-                    AudioAttributes.Builder()
-                        .setUsage(AudioAttributes.USAGE_GAME)
-                        .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC)
-                        .build()
-                )
-                .setAudioFormat(
-                    AudioFormat.Builder()
-                        .setEncoding(AudioFormat.ENCODING_PCM_16BIT)
-                        .setSampleRate(sampleRate)
-                        .setChannelMask(AudioFormat.CHANNEL_OUT_MONO)
-                        .build()
-                )
-                .setBufferSizeInBytes(bufferSize)
-                .setTransferMode(AudioTrack.MODE_STREAM)
-                .build()
-
-            val melodies = mapOf(
-                0 to intArrayOf(262, 330, 392, 523, 392, 330, 294, 349, 440, 349), // Menu
-                1 to intArrayOf(220, 262, 294, 330, 294, 262, 196, 247),           // Mundo 1: Canteiro
-                2 to intArrayOf(294, 349, 440, 392, 349, 330, 262, 294),           // Mundo 2: Selva
-                3 to intArrayOf(196, 233, 262, 277, 262, 233, 196, 175),           // Mundo 3: Fábrica
-                4 to intArrayOf(165, 196, 220, 233, 220, 196, 165, 147)            // Mundo 4: Fortaleza
-            )
-
-            track.play()
-            var step = 0
-            val noteDurationSamples = sampleRate / 6
-            val buffer = ShortArray(noteDurationSamples)
-
-            while (musicRunning && saveManager.musicEnabled) {
-                val notes = melodies[currentWorldTheme] ?: melodies[1]!!
-                val freq = notes[step % notes.size].toDouble()
-                for (i in 0 until noteDurationSamples) {
-                    val env = if (i < noteDurationSamples * 0.8) 1.0 else 0.0
-                    val wave = sin(2.0 * PI * freq * i / sampleRate)
-                    buffer[i] = (wave * 1800 * env).toInt().toShort()
-                }
-                track.write(buffer, 0, buffer.size)
-                step++
-            }
+            var track: AudioTrack? = null
             try {
-                track.stop()
-                track.release()
-            } catch (_: Exception) {}
+                val sampleRate = 44100
+                val minBuf = AudioTrack.getMinBufferSize(
+                    sampleRate,
+                    AudioFormat.CHANNEL_OUT_MONO,
+                    AudioFormat.ENCODING_PCM_16BIT
+                )
+                val bufferSize = if (minBuf > 0) minBuf.coerceAtLeast(4096) else 4096
+
+                track = AudioTrack.Builder()
+                    .setAudioAttributes(
+                        AudioAttributes.Builder()
+                            .setUsage(AudioAttributes.USAGE_GAME)
+                            .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC)
+                            .build()
+                    )
+                    .setAudioFormat(
+                        AudioFormat.Builder()
+                            .setEncoding(AudioFormat.ENCODING_PCM_16BIT)
+                            .setSampleRate(sampleRate)
+                            .setChannelMask(AudioFormat.CHANNEL_OUT_MONO)
+                            .build()
+                    )
+                    .setBufferSizeInBytes(bufferSize)
+                    .setTransferMode(AudioTrack.MODE_STREAM)
+                    .build()
+
+                val melodies = mapOf(
+                    0 to intArrayOf(262, 330, 392, 523, 392, 330, 294, 349, 440, 349), // Menu
+                    1 to intArrayOf(220, 262, 294, 330, 294, 262, 196, 247),           // Mundo 1: Canteiro
+                    2 to intArrayOf(294, 349, 440, 392, 349, 330, 262, 294),           // Mundo 2: Selva
+                    3 to intArrayOf(196, 233, 262, 277, 262, 233, 196, 175),           // Mundo 3: Fábrica
+                    4 to intArrayOf(165, 196, 220, 233, 220, 196, 165, 147)            // Mundo 4: Fortaleza
+                )
+
+                track.play()
+                var step = 0
+                val noteDurationSamples = sampleRate / 6
+                val buffer = ShortArray(noteDurationSamples)
+
+                while (musicRunning && saveManager.musicEnabled) {
+                    val notes = melodies[currentWorldTheme] ?: melodies[1]!!
+                    val freq = notes[step % notes.size].toDouble()
+                    for (i in 0 until noteDurationSamples) {
+                        val env = if (i < noteDurationSamples * 0.8) 1.0 else 0.0
+                        val wave = sin(2.0 * PI * freq * i / sampleRate)
+                        buffer[i] = (wave * 1800 * env).toInt().toShort()
+                    }
+                    track.write(buffer, 0, buffer.size)
+                    step++
+                }
+            } catch (_: Exception) {
+            } finally {
+                musicRunning = false
+                try {
+                    track?.stop()
+                    track?.release()
+                } catch (_: Exception) {}
+            }
         }.apply { isDaemon = true; start() }
     }
 
@@ -113,8 +126,9 @@ class SoundEngine(private val context: Context, private val saveManager: SaveMan
     private fun playToneSequence(freqs: IntArray, durationsMs: IntArray, volume: Int = 4500) {
         if (!saveManager.sfxEnabled) return
         sfxExecutor.execute {
+            var track: AudioTrack? = null
             try {
-                val sampleRate = 22050
+                val sampleRate = 44100
                 val totalMs = durationsMs.sum().coerceAtLeast(20)
                 val totalSamples = (sampleRate * totalMs) / 1000
                 val pcm = ShortArray(totalSamples)
@@ -131,7 +145,14 @@ class SoundEngine(private val context: Context, private val saveManager: SaveMan
                     }
                 }
 
-                val track = AudioTrack.Builder()
+                val minBuf = AudioTrack.getMinBufferSize(
+                    sampleRate,
+                    AudioFormat.CHANNEL_OUT_MONO,
+                    AudioFormat.ENCODING_PCM_16BIT
+                )
+                val bufBytes = (pcm.size * 2).coerceAtLeast(if (minBuf > 0) minBuf else 2048)
+
+                track = AudioTrack.Builder()
                     .setAudioAttributes(
                         AudioAttributes.Builder()
                             .setUsage(AudioAttributes.USAGE_GAME)
@@ -145,15 +166,20 @@ class SoundEngine(private val context: Context, private val saveManager: SaveMan
                             .setChannelMask(AudioFormat.CHANNEL_OUT_MONO)
                             .build()
                     )
-                    .setBufferSizeInBytes(pcm.size * 2)
+                    .setBufferSizeInBytes(bufBytes)
                     .setTransferMode(AudioTrack.MODE_STATIC)
                     .build()
 
                 track.write(pcm, 0, pcm.size)
                 track.play()
                 Thread.sleep(totalMs.toLong() + 40L)
-                track.release()
-            } catch (_: Exception) {}
+            } catch (_: Exception) {
+            } finally {
+                try {
+                    track?.stop()
+                    track?.release()
+                } catch (_: Exception) {}
+            }
         }
     }
 

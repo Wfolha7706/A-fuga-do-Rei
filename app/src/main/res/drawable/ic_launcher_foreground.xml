@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <!-- Golden King Crown -->
+    <path
+        android:fillColor="#FFD700"
+        android:pathData="M24,70 L84,70 L80,42 L64,54 L54,32 L44,54 L28,42 Z"/>
+    <!-- Crown Base Band -->
+    <path
+        android:fillColor="#E5A900"
+        android:pathData="M24,68 L84,68 L84,74 L24,74 Z"/>
+    <!-- Gems -->
+    <path
+        android:fillColor="#FF3333"
+        android:pathData="M54,36 A3,3 0 1,1 54,30 A3,3 0 1,1 54,36 Z"/>
+    <path
+        android:fillColor="#00E5FF"
+        android:pathData="M30,45 A2.5,2.5 0 1,1 30,40 A2.5,2.5 0 1,1 30,45 Z"/>
+    <path
+        android:fillColor="#00E5FF"
+        android:pathData="M78,45 A2.5,2.5 0 1,1 78,40 A2.5,2.5 0 1,1 78,45 Z"/>
+</vector>
